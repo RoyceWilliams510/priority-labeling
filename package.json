@@ -1,0 +1,48 @@
+{
+  "name": "plain-priority-labeling",
+  "version": "1.0.0",
+  "description": "AI-powered ticket prioritization integration for Plain support platform",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "test": "jest",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix"
+  },
+  "keywords": [
+    "plain",
+    "support",
+    "ticket",
+    "prioritization",
+    "ai",
+    "webhook"
+  ],
+  "author": "Your Team",
+  "license": "MIT",
+  "dependencies": {
+    "@team-plain/typescript-sdk": "^4.0.0",
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "helmet": "^7.1.0",
+    "morgan": "^1.10.0",
+    "dotenv": "^16.3.1",
+    "joi": "^17.11.0",
+    "axios": "^1.6.0",
+    "winston": "^3.11.0",
+    "rate-limiter-flexible": "^4.0.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1",
+    "jest": "^29.7.0",
+    "eslint": "^8.52.0",
+    "eslint-config-standard": "^17.1.0",
+    "eslint-plugin-import": "^2.29.0",
+    "eslint-plugin-n": "^16.3.1",
+    "eslint-plugin-promise": "^6.1.1",
+    "supertest": "^6.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
