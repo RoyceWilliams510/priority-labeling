@@ -2,16 +2,25 @@
   "version": 2,
   "builds": [
     {
-      "src": "src/server.js",
+      "src": "api/**/*.js",
       "use": "@vercel/node"
     }
   ],
   "routes": [
     {
-      "src": "/(.*)",
-      "dest": "src/server.js"
+      "src": "/health",
+      "dest": "/api/health"
+    },
+    {
+      "src": "/webhook/plain",
+      "dest": "/api/webhook/plain"
     }
   ],
+  "functions": {
+    "api/webhook/plain.js": {
+      "maxDuration": 30
+    }
+  },
   "env": {
     "NODE_ENV": "production"
   }

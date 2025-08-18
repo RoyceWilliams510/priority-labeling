@@ -52,8 +52,8 @@ const transports = [
   })
 ];
 
-// Add file transport in production
-if (config.nodeEnv === 'production') {
+// Add file transport in production (but not in serverless environments)
+if (config.nodeEnv === 'production' && !process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
   transports.push(
     new winston.transports.File({
       level: 'error',
@@ -83,13 +83,24 @@ const logger = winston.createLogger({
   exitOnError: false
 });
 
-// Handle uncaught exceptions and rejections
-logger.exceptions.handle(
-  new winston.transports.File({ filename: 'logs/exceptions.log' })
-);
+// Handle uncaught exceptions and rejections (only for non-serverless environments)
+if (!process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
+  logger.exceptions.handle(
+    new winston.transports.File({ filename: 'logs/exceptions.log' })
+  );
 
-logger.rejections.handle(
-  new winston.transports.File({ filename: 'logs/rejections.log' })
-);
+  logger.rejections.handle(
+    new winston.transports.File({ filename: 'logs/rejections.log' })
+  );
+} else {
+  // For serverless environments, just log to console
+  process.on('uncaughtException', (error) => {
+    logger.error('Uncaught Exception', { error: error.message, stack: error.stack });
+  });
+
+  process.on('unhandledRejection', (reason, promise) => {
+    logger.error('Unhandled Rejection', { reason, promise });
+  });
+}
 
 module.exports = logger;
