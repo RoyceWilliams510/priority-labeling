@@ -16,6 +16,7 @@
     }
   },
   "env": {
-    "NODE_ENV": "production"
+    "NODE_ENV": "production",
+    "LOG_LEVEL": "debug"
   }
 }

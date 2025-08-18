@@ -54,11 +54,23 @@ module.exports = async (req, res) => {
   const requestId = generateRequestId();
   
   try {
-    logger.info('Received Plain webhook (serverless)', {
+    // Log complete request details for debugging
+    logger.info('Received Plain webhook (serverless) - FULL REQUEST LOG', {
       requestId,
       method: req.method,
+      url: req.url,
+      headers: req.headers,
+      query: req.query,
+      rawBody: req.body,
+      bodyType: typeof req.body,
+      contentType: req.headers['content-type'],
       userAgent: req.headers['user-agent'],
-      contentLength: req.headers['content-length']
+      contentLength: req.headers['content-length'],
+      // plainHeaders: {
+      //   signature: req.headers['plain-request-signature'],
+      //   workspaceId: req.headers['plain-workspace-id'],
+      //   requestId: req.headers['plain-request-id']
+      // }
     });
 
     // Handle body parsing for signature verification
@@ -93,6 +105,18 @@ module.exports = async (req, res) => {
     const signature = req.headers['plain-request-signature'];
     const workspaceId = req.headers['plain-workspace-id'];
 
+    // Log processed body details
+    logger.info('Processed webhook body details', {
+      requestId,
+      rawBodyType: typeof rawBody,
+      rawBodyLength: rawBody?.length,
+      rawBodyPreview: rawBody ? rawBody.substring(0, 200) + '...' : 'null',
+      parsedBodyType: typeof parsedBody,
+      parsedBodyKeys: parsedBody && typeof parsedBody === 'object' ? Object.keys(parsedBody) : 'not-object',
+      signature: signature ? signature.substring(0, 20) + '...' : 'missing',
+      workspaceId
+    });
+
     if (!signature) {
       logger.warn('Missing Plain-Request-Signature header', { requestId });
       return res.status(401).json({ error: 'Missing signature header' });
@@ -107,6 +131,15 @@ module.exports = async (req, res) => {
       hasVerifyFunction: typeof verifyPlainWebhook === 'function'
     });
 
+    // Debug: Log available error classes
+    logger.debug('Available error classes', {
+      requestId,
+      PlainWebhookSignatureVerificationError: typeof PlainWebhookSignatureVerificationError,
+      PlainWebhookVersionMismatchError: typeof PlainWebhookVersionMismatchError,
+      ManualVerificationError: typeof ManualVerificationError,
+      ManualVersionError: typeof ManualVersionError
+    });
+
     // Verify the webhook signature (try Plain SDK first, fallback to manual)
     let webhookResult;
     
@@ -118,21 +151,44 @@ module.exports = async (req, res) => {
       webhookResult = verifyPlainWebhookManual(rawBody, signature, config.plainSignatureSecret);
     }
 
-    if (webhookResult.error instanceof PlainWebhookSignatureVerificationError || 
-        webhookResult.error instanceof ManualVerificationError ||
-        (webhookResult.error && webhookResult.error.message.includes('signature verification failed'))) {
+    // Log webhook result details
+    logger.debug('Webhook verification result', {
+      requestId,
+      hasError: !!webhookResult.error,
+      errorMessage: webhookResult.error?.message,
+      errorType: webhookResult.error?.constructor?.name,
+      hasData: !!webhookResult.data
+    });
+
+    // Check for signature verification errors (handle undefined error classes)
+    const isSignatureError = webhookResult.error && (
+      (PlainWebhookSignatureVerificationError && webhookResult.error instanceof PlainWebhookSignatureVerificationError) ||
+      (ManualVerificationError && webhookResult.error instanceof ManualVerificationError) ||
+      webhookResult.error.message?.includes('signature verification failed') ||
+      webhookResult.error.message?.includes('Webhook signature verification failed')
+    );
+
+    if (isSignatureError) {
       logger.warn('Failed to verify webhook signature', { 
         requestId,
-        error: webhookResult.error.message 
+        error: webhookResult.error.message,
+        errorType: webhookResult.error.constructor?.name 
       });
       return res.status(401).json({ error: 'Failed to verify webhook signature' });
     }
 
-    if (webhookResult.error instanceof PlainWebhookVersionMismatchError || 
-        webhookResult.error instanceof ManualVersionError) {
+    // Check for version mismatch errors
+    const isVersionError = webhookResult.error && (
+      (PlainWebhookVersionMismatchError && webhookResult.error instanceof PlainWebhookVersionMismatchError) ||
+      (ManualVersionError && webhookResult.error instanceof ManualVersionError) ||
+      webhookResult.error.message?.includes('version mismatch')
+    );
+
+    if (isVersionError) {
       logger.warn('Webhook version mismatch', { 
         requestId,
-        error: webhookResult.error.message 
+        error: webhookResult.error.message,
+        errorType: webhookResult.error.constructor?.name
       });
       return res.status(400).json({ error: 'Webhook version mismatch' });
     }
@@ -147,12 +203,16 @@ module.exports = async (req, res) => {
 
     // Parse the webhook data
     const webhookData = webhookResult.data;
-    const eventType = webhookData.payload.eventType;
+    const eventType = webhookData?.payload?.eventType;
 
-    logger.info('Webhook verified successfully', {
+    logger.info('Webhook verified successfully - FULL WEBHOOK DATA', {
       requestId,
       eventType,
-      workspaceId
+      workspaceId,
+      webhookDataKeys: webhookData ? Object.keys(webhookData) : 'null',
+      payloadKeys: webhookData?.payload ? Object.keys(webhookData.payload) : 'null',
+      fullWebhookData: webhookData, // Log the entire webhook payload
+      verificationMethod: verifyPlainWebhook ? 'plain-sdk' : 'manual-fallback'
     });
 
     // Process based on event type
@@ -209,11 +269,15 @@ module.exports = async (req, res) => {
 async function handleThreadCreated(payload, requestId) {
   const thread = payload.thread;
   
-  logger.info('Processing thread created event', {
+  logger.info('Processing thread created event - FULL THREAD DATA', {
     requestId,
-    threadId: thread.id,
-    customerId: thread.customer?.id,
-    customerEmail: thread.customer?.email
+    threadId: thread?.id,
+    customerId: thread?.customer?.id,
+    customerEmail: thread?.customer?.email,
+    threadKeys: thread ? Object.keys(thread) : 'null',
+    customerKeys: thread?.customer ? Object.keys(thread.customer) : 'null',
+    fullThread: thread, // Log the entire thread object
+    fullPayload: payload // Log the entire payload
   });
 
   try {
