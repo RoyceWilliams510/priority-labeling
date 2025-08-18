@@ -176,3 +176,8 @@ monitoring/
 # Local configuration overrides
 config/local.js
 config/local.json
+
+DEPLOYMENT_GUIDE.md
+Dockerfile
+PRD-v1.md
+docker-compose.yml

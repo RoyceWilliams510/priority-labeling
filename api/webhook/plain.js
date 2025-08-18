@@ -1,14 +1,36 @@
-const {
-  PlainWebhookSignatureVerificationError,
-  PlainWebhookVersionMismatchError,
-  verifyPlainWebhook
-} = require('@team-plain/typescript-sdk');
+// Try different import approaches for Plain SDK
+let verifyPlainWebhook, PlainWebhookSignatureVerificationError, PlainWebhookVersionMismatchError;
+
+try {
+  // Method 1: Direct destructuring
+  const sdk = require('@team-plain/typescript-sdk');
+  verifyPlainWebhook = sdk.verifyPlainWebhook;
+  PlainWebhookSignatureVerificationError = sdk.PlainWebhookSignatureVerificationError;
+  PlainWebhookVersionMismatchError = sdk.PlainWebhookVersionMismatchError;
+} catch (e1) {
+  try {
+    // Method 2: Default export
+    const sdk = require('@team-plain/typescript-sdk').default;
+    verifyPlainWebhook = sdk.verifyPlainWebhook;
+    PlainWebhookSignatureVerificationError = sdk.PlainWebhookSignatureVerificationError;
+    PlainWebhookVersionMismatchError = sdk.PlainWebhookVersionMismatchError;
+  } catch (e2) {
+    console.error('Failed to import Plain SDK:', e1, e2);
+  }
+}
 
 // Import your services (you may need to adjust paths)
 const logger = require('../../src/utils/logger');
 const config = require('../../src/config/config');
 const priorityClassifier = require('../../src/services/priorityClassifier');
 const plainApiClient = require('../../src/services/plainApiClient');
+
+// Fallback webhook verification
+const { 
+  verifyPlainWebhookManual,
+  PlainWebhookSignatureVerificationError: ManualVerificationError,
+  PlainWebhookVersionMismatchError: ManualVersionError
+} = require('../../src/utils/webhookVerification');
 
 // Configure body parser for raw text - this is important for webhook signature verification
 export const config_vercel = {
@@ -81,17 +103,24 @@ module.exports = async (req, res) => {
       hasRawBody: !!rawBody,
       rawBodyLength: rawBody?.length,
       hasSignature: !!signature,
-      signaturePreview: signature?.substring(0, 10) + '...'
+      signaturePreview: signature?.substring(0, 10) + '...',
+      hasVerifyFunction: typeof verifyPlainWebhook === 'function'
     });
 
-    // Verify the webhook signature
-    const webhookResult = verifyPlainWebhook(
-      rawBody,
-      signature,
-      config.plainSignatureSecret
-    );
+    // Verify the webhook signature (try Plain SDK first, fallback to manual)
+    let webhookResult;
+    
+    if (verifyPlainWebhook && typeof verifyPlainWebhook === 'function') {
+      logger.debug('Using Plain SDK for webhook verification', { requestId });
+      webhookResult = verifyPlainWebhook(rawBody, signature, config.plainSignatureSecret);
+    } else {
+      logger.debug('Using manual webhook verification fallback', { requestId });
+      webhookResult = verifyPlainWebhookManual(rawBody, signature, config.plainSignatureSecret);
+    }
 
-    if (webhookResult.error instanceof PlainWebhookSignatureVerificationError) {
+    if (webhookResult.error instanceof PlainWebhookSignatureVerificationError || 
+        webhookResult.error instanceof ManualVerificationError ||
+        (webhookResult.error && webhookResult.error.message.includes('signature verification failed'))) {
       logger.warn('Failed to verify webhook signature', { 
         requestId,
         error: webhookResult.error.message 
@@ -99,7 +128,8 @@ module.exports = async (req, res) => {
       return res.status(401).json({ error: 'Failed to verify webhook signature' });
     }
 
-    if (webhookResult.error instanceof PlainWebhookVersionMismatchError) {
+    if (webhookResult.error instanceof PlainWebhookVersionMismatchError || 
+        webhookResult.error instanceof ManualVersionError) {
       logger.warn('Webhook version mismatch', { 
         requestId,
         error: webhookResult.error.message 

@@ -1,8 +1,8 @@
-const {
+import {
   PlainWebhookSignatureVerificationError,
   PlainWebhookVersionMismatchError,
   verifyPlainWebhook
-} = require('@team-plain/typescript-sdk');
+} from '@team-plain/typescript-sdk';
 
 const logger = require('../utils/logger');
 const config = require('../config/config');
