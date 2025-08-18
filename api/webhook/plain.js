@@ -1,0 +1,280 @@
+const {
+  PlainWebhookSignatureVerificationError,
+  PlainWebhookVersionMismatchError,
+  verifyPlainWebhook
+} = require('@team-plain/typescript-sdk');
+
+// Import your services (you may need to adjust paths)
+const logger = require('../../src/utils/logger');
+const config = require('../../src/config/config');
+const priorityClassifier = require('../../src/services/priorityClassifier');
+const plainApiClient = require('../../src/services/plainApiClient');
+
+// Configure body parser for raw text - this is important for webhook signature verification
+export const config_vercel = {
+  api: {
+    bodyParser: {
+      sizeLimit: '1mb',
+    },
+  },
+}
+
+/**
+ * Serverless function for handling Plain webhooks
+ */
+module.exports = async (req, res) => {
+  // Only allow POST requests
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const startTime = Date.now();
+  const requestId = generateRequestId();
+  
+  try {
+    logger.info('Received Plain webhook (serverless)', {
+      requestId,
+      method: req.method,
+      userAgent: req.headers['user-agent'],
+      contentLength: req.headers['content-length']
+    });
+
+    // Handle body parsing for signature verification
+    let rawBody;
+    let parsedBody;
+    
+    // Try to get raw body first
+    if (req.body && typeof req.body === 'string') {
+      rawBody = req.body;
+      try {
+        parsedBody = JSON.parse(req.body);
+      } catch (e) {
+        parsedBody = req.body;
+      }
+    } else if (req.body && typeof req.body === 'object') {
+      // Body was already parsed by Vercel
+      parsedBody = req.body;
+      rawBody = JSON.stringify(req.body);
+    } else {
+      // Try to read raw body from request
+      const chunks = [];
+      req.on('data', chunk => chunks.push(chunk));
+      await new Promise(resolve => req.on('end', resolve));
+      rawBody = Buffer.concat(chunks).toString();
+      try {
+        parsedBody = JSON.parse(rawBody);
+      } catch (e) {
+        parsedBody = rawBody;
+      }
+    }
+    
+    const signature = req.headers['plain-request-signature'];
+    const workspaceId = req.headers['plain-workspace-id'];
+
+    if (!signature) {
+      logger.warn('Missing Plain-Request-Signature header', { requestId });
+      return res.status(401).json({ error: 'Missing signature header' });
+    }
+
+    logger.debug('Webhook verification details', {
+      requestId,
+      hasRawBody: !!rawBody,
+      rawBodyLength: rawBody?.length,
+      hasSignature: !!signature,
+      signaturePreview: signature?.substring(0, 10) + '...'
+    });
+
+    // Verify the webhook signature
+    const webhookResult = verifyPlainWebhook(
+      rawBody,
+      signature,
+      config.plainSignatureSecret
+    );
+
+    if (webhookResult.error instanceof PlainWebhookSignatureVerificationError) {
+      logger.warn('Failed to verify webhook signature', { 
+        requestId,
+        error: webhookResult.error.message 
+      });
+      return res.status(401).json({ error: 'Failed to verify webhook signature' });
+    }
+
+    if (webhookResult.error instanceof PlainWebhookVersionMismatchError) {
+      logger.warn('Webhook version mismatch', { 
+        requestId,
+        error: webhookResult.error.message 
+      });
+      return res.status(400).json({ error: 'Webhook version mismatch' });
+    }
+
+    if (webhookResult.error) {
+      logger.error('Unexpected webhook verification error', { 
+        requestId,
+        error: webhookResult.error.message 
+      });
+      return res.status(500).json({ error: 'Unexpected error' });
+    }
+
+    // Parse the webhook data
+    const webhookData = webhookResult.data;
+    const eventType = webhookData.payload.eventType;
+
+    logger.info('Webhook verified successfully', {
+      requestId,
+      eventType,
+      workspaceId
+    });
+
+    // Process based on event type
+    switch (eventType) {
+      case 'thread.thread_created':
+        await handleThreadCreated(webhookData.payload, requestId);
+        break;
+      
+      case 'thread.email_received':
+        await handleEmailReceived(webhookData.payload, requestId);
+        break;
+      
+      case 'thread.labels_changed':
+        await handleLabelsChanged(webhookData.payload, requestId);
+        break;
+      
+      default:
+        logger.debug('Unhandled event type', { requestId, eventType });
+        break;
+    }
+
+    // Send success response
+    const processingTime = Date.now() - startTime;
+    logger.info('Webhook processed successfully', {
+      requestId,
+      eventType,
+      processingTimeMs: processingTime
+    });
+
+    res.status(200).json({ 
+      success: true, 
+      message: 'Webhook processed successfully',
+      requestId,
+      processingTimeMs: processingTime
+    });
+
+  } catch (error) {
+    const processingTime = Date.now() - startTime;
+    logger.error('Error processing webhook', {
+      requestId,
+      error: error.message,
+      stack: error.stack,
+      processingTimeMs: processingTime
+    });
+
+    res.status(500).json({ 
+      error: 'Internal server error',
+      requestId 
+    });
+  }
+};
+
+// Helper functions (copied from your webhook handler)
+async function handleThreadCreated(payload, requestId) {
+  const thread = payload.thread;
+  
+  logger.info('Processing thread created event', {
+    requestId,
+    threadId: thread.id,
+    customerId: thread.customer?.id,
+    customerEmail: thread.customer?.email
+  });
+
+  try {
+    const priority = await priorityClassifier.classifyThread(thread);
+    
+    logger.info('Thread classified', {
+      requestId,
+      threadId: thread.id,
+      priority: priority.priority,
+      confidence: priority.confidence
+    });
+
+    if (priority.confidence >= 0.7) {
+      await plainApiClient.addPriorityLabel(thread.id, priority.priority);
+      
+      logger.info('Priority label applied', {
+        requestId,
+        threadId: thread.id,
+        priority: priority.priority,
+        confidence: priority.confidence
+      });
+    } else {
+      logger.info('Low confidence classification, manual review required', {
+        requestId,
+        threadId: thread.id,
+        priority: priority.priority,
+        confidence: priority.confidence
+      });
+    }
+
+  } catch (error) {
+    logger.error('Error processing thread created event', {
+      requestId,
+      threadId: thread.id,
+      error: error.message,
+      stack: error.stack
+    });
+  }
+}
+
+async function handleEmailReceived(payload, requestId) {
+  const thread = payload.thread;
+  const isStartOfThread = payload.isStartOfThread;
+  
+  if (!isStartOfThread) {
+    logger.debug('Email received but not start of thread, skipping', {
+      requestId,
+      threadId: thread.id
+    });
+    return;
+  }
+  
+  logger.info('Processing email received event (start of thread)', {
+    requestId,
+    threadId: thread.id,
+    customerId: thread.customer?.id,
+    customerEmail: thread.customer?.email
+  });
+
+  await handleThreadCreated(payload, requestId);
+}
+
+async function handleLabelsChanged(payload, requestId) {
+  const thread = payload.thread;
+  const addedLabels = payload.addedLabels || [];
+  const removedLabels = payload.removedLabels || [];
+  
+  logger.info('Processing labels changed event', {
+    requestId,
+    threadId: thread.id,
+    addedLabels: addedLabels.map(l => l.labelType?.name),
+    removedLabels: removedLabels.map(l => l.labelType?.name)
+  });
+
+  const priorityLabelTypes = Object.values(config.priorityLabels);
+  const manualPriorityChanges = [...addedLabels, ...removedLabels].filter(label => 
+    priorityLabelTypes.includes(label.labelType?.id)
+  );
+
+  if (manualPriorityChanges.length > 0) {
+    logger.info('Manual priority label changes detected', {
+      requestId,
+      threadId: thread.id,
+      changes: manualPriorityChanges.map(l => ({
+        action: addedLabels.includes(l) ? 'added' : 'removed',
+        label: l.labelType?.name
+      }))
+    });
+  }
+}
+
+function generateRequestId() {
+  return `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
