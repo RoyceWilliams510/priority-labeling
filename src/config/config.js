@@ -50,7 +50,7 @@ const config = {
         'security breach', 'data loss', 'payment failed', 'cannot login',
         'site down', 'server error', 'production issue'
       ],
-      customerTiers: ['enterprise', 'pro','hobby'],
+      customerTiers: ['custom', 'pro','hobby'],
       timeThresholds: {
         created: 0, // Immediate
         response: 60 * 15 // 15 minutes
@@ -67,7 +67,7 @@ const config = {
         'bug', 'error', 'issue', 'problem', 'not working', 'feature request',
         'integration', 'api', 'billing', 'account', 'performance'
       ],
-      customerTiers: ['enterprise', 'pro','hobby','trialing'],
+      customerTiers: ['custom', 'pro','hobby','trial'],
       timeThresholds: {
         created: 60 * 60 * 4, // 4 hours
         response: 60 * 60 * 8 // 8 hours
@@ -84,7 +84,7 @@ const config = {
         'question', 'help', 'how to', 'clarification', 'documentation',
         'training', 'onboarding', 'best practice', 'recommendation'
       ],
-      customerTiers: ['enterprise', 'pro','hobby','trialing'],
+      customerTiers: ['custom', 'pro','hobby','trial'],
       timeThresholds: {
         created: 60 * 60 * 24, // 24 hours
         response: 60 * 60 * 24 // 24 hours
@@ -101,7 +101,7 @@ const config = {
         'feedback', 'suggestion', 'enhancement', 'nice to have',
         'cosmetic', 'minor', 'improvement', 'general inquiry'
       ],
-      customerTiers: ['enterprise', 'pro','hobby','trialing'],
+      customerTiers: ['custom', 'pro','hobby','trial'],
       timeThresholds: {
         created: 60 * 60 * 72, // 72 hours
         response: 60 * 60 * 72 // 72 hours

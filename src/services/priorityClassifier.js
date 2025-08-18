@@ -145,7 +145,7 @@ class PriorityClassifier {
     // For now, return a default tier
     if (customer.email?.includes('@enterprise.com')) return 'enterprise';
     if (customer.email?.includes('@premium.com')) return 'premium';
-    return 'standard';
+    return 'pro';
   }
 
   /**
