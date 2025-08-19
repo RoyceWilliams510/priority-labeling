@@ -66,11 +66,6 @@ module.exports = async (req, res) => {
       contentType: req.headers['content-type'],
       userAgent: req.headers['user-agent'],
       contentLength: req.headers['content-length'],
-      // plainHeaders: {
-      //   signature: req.headers['plain-request-signature'],
-      //   workspaceId: req.headers['plain-workspace-id'],
-      //   requestId: req.headers['plain-request-id']
-      // }
     });
 
     // Handle body parsing for signature verification
@@ -224,7 +219,12 @@ module.exports = async (req, res) => {
       case 'thread.email_received':
         await handleEmailReceived(webhookData.payload, requestId);
         break;
-      
+      case 'thread.chat_received':
+        await handleChatReceived(webhookData.payload, requestId);
+        break;
+      case 'thread.note_created':
+        await handleNoteCreated(webhookData.payload, requestId);
+        break;
       case 'thread.labels_changed':
         await handleLabelsChanged(webhookData.payload, requestId);
         break;
@@ -318,26 +318,44 @@ async function handleThreadCreated(payload, requestId) {
   }
 }
 
+async function handleChatReceived(payload, requestId) {
+  logger.info('Chat received event', {
+    requestId,
+    payload
+  });
+}
+
+async function handleNoteCreated(payload, requestId) {
+  logger.info('Note created event', {
+    requestId,
+    payload
+  });
+}
+
 async function handleEmailReceived(payload, requestId) {
   const thread = payload.thread;
-  const isStartOfThread = payload.isStartOfThread;
-  
-  if (!isStartOfThread) {
-    logger.debug('Email received but not start of thread, skipping', {
-      requestId,
-      threadId: thread.id
-    });
-    return;
-  }
-  
-  logger.info('Processing email received event (start of thread)', {
+  // const isStartOfThread = payload.isStartOfThread;
+  logger.info('Email received event', {
     requestId,
-    threadId: thread.id,
-    customerId: thread.customer?.id,
-    customerEmail: thread.customer?.email
+    payload
   });
+  
+  // if (!isStartOfThread) {
+  //   logger.debug('Email received but not start of thread, skipping', {
+  //     requestId,
+  //     threadId: thread.id
+  //   });
+  //   return;
+  // }
+  
+  // logger.info('Processing email received event (start of thread)', {
+  //   requestId,
+  //   threadId: thread.id,
+  //   customerId: thread.customer?.id,
+  //   customerEmail: thread.customer?.email
+  // });
 
-  await handleThreadCreated(payload, requestId);
+  // await handleThreadCreated(payload, requestId);
 }
 
 async function handleLabelsChanged(payload, requestId) {
