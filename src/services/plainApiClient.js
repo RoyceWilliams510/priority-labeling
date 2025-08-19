@@ -257,14 +257,20 @@ class PlainApiClient {
           createdAt {
             iso8601
           }
+    			previewText
           updatedAt {
             iso8601
+          }
+          tier {
+            name
           }
           status
           priority
           customer {
             id
-            email
+            email {
+              email
+            }
             fullName
             externalId
           }
@@ -297,10 +303,11 @@ class PlainApiClient {
       logger.debug('Successfully fetched thread', {
         threadId,
         title: data.thread.title,
-        labelsCount: data.thread.labels.length
+        labelsCount: data.thread.labels?.length || 0,
+        tierName: data.thread.tier?.name
       });
 
-      return data.thread;
+      return enhancedThread;
     } catch (error) {
       logger.error('Failed to fetch thread', {
         threadId,

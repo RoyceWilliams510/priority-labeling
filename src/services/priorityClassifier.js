@@ -75,13 +75,31 @@ class PriorityClassifier {
   extractThreadData(thread) {
     // Extract text content from thread messages
     let textContent = '';
-    if (thread.firstMessage) {
+    
+    // Use all message content if available (from enhanced API call)
+    if (thread.allMessageContent) {
+      textContent = thread.allMessageContent;
+      logger.debug('Using all message content for classification', {
+        threadId: thread.id,
+        contentLength: textContent.length,
+        contentPreview: textContent.substring(0, 200)
+      });
+    } else if (thread.firstMessage) {
       textContent = this.extractTextFromMessage(thread.firstMessage);
+      logger.debug('Using first message only for classification', {
+        threadId: thread.id,
+        contentLength: textContent.length
+      });
+    }
+    
+    // Also include thread title if available and not default
+    if (thread.title && thread.title !== 'No preview' && thread.title !== thread.previewText) {
+      textContent = (textContent + ' ' + thread.title).trim();
     }
 
     // Extract customer metadata
     const customer = thread.customer || {};
-    const customerTier = this.determineCustomerTier(customer);
+    const customerTier = this.determineCustomerTier(customer, thread);
 
     // Calculate timing metrics
     const createdAt = new Date(thread.createdAt?.iso8601 || Date.now());
@@ -134,18 +152,47 @@ class PriorityClassifier {
   }
 
   /**
-   * Determine customer tier based on customer data
+   * Determine customer tier based on thread tier data
    * @param {Object} customer - Customer object
+   * @param {Object} thread - Thread object containing tier information
    * @returns {string} Customer tier
    */
-  determineCustomerTier(customer) {
-    // TODO: Implement actual customer tier logic based on your business rules
-    // This might involve checking customer groups, subscription levels, etc.
+  determineCustomerTier(customer, thread) {
+    // Use thread.tier.name if available (simplest approach)
+    if (thread?.tier?.name) {
+      const tierName = thread.tier.name.toLowerCase();
+      
+      logger.debug('Using thread tier for customer classification', {
+        customerId: customer?.id,
+        threadId: thread?.id,
+        tierName: thread.tier.name,
+        email: customer?.email?.email || customer?.email
+      });
+
+      // Map Plain tier names to our internal tier system
+      // if (tierName.includes('enterprise') || tierName.includes('premium')) {
+      //   return 'enterprise';
+      // }
+      // if (tierName.includes('pro') || tierName.includes('professional')) {
+      //   return 'pro';
+      // }
+      // if (tierName.includes('hobby') || tierName.includes('personal')) {
+      //   return 'hobby';
+      // }
+      // if (tierName.includes('trial') || tierName.includes('free')) {
+      //   return 'trialing';
+      // }
+      // Return the tier name as-is if it doesn't match our patterns
+      return tierName;
+    }
+
+    // Fallback to default if no tier information
+    logger.debug('No thread tier available, using default', {
+      customerId: customer?.id,
+      threadId: thread?.id
+    });
     
-    // For now, return a default tier
-    if (customer.email?.includes('@enterprise.com')) return 'enterprise';
-    if (customer.email?.includes('@premium.com')) return 'premium';
-    return 'pro';
+    return 'hobby';
   }
 
   /**
