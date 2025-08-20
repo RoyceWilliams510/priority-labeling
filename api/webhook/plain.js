@@ -24,6 +24,7 @@ const logger = require('../../src/utils/logger');
 const config = require('../../src/config/config');
 const priorityClassifier = require('../../src/services/priorityClassifier');
 const plainApiClient = require('../../src/services/plainApiClient');
+const database = require('../../src/services/database');
 
 // Fallback webhook verification
 const { 
@@ -41,10 +42,24 @@ export const config_vercel = {
   },
 }
 
+// Initialize database connection on first request
+let dbInitialized = false;
+
 /**
  * Serverless function for handling Plain webhooks
  */
 module.exports = async (req, res) => {
+  // Initialize database on first request
+  if (!dbInitialized) {
+    try {
+      await database.initialize();
+      dbInitialized = true;
+    } catch (error) {
+      logger.warn('Database initialization failed, continuing without database', {
+        error: error.message
+      });
+    }
+  }
   // Only allow POST requests
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -212,19 +227,14 @@ module.exports = async (req, res) => {
 
     // Process based on event type
     switch (eventType) {
-      case 'thread.thread_created':
-        await handleThreadCreated(webhookData.payload, requestId);
-        break;
-      
       case 'thread.email_received':
         await handleEmailReceived(webhookData.payload, requestId);
         break;
+      
       case 'thread.chat_received':
         await handleChatReceived(webhookData.payload, requestId);
         break;
-      case 'thread.note_created':
-        await handleNoteCreated(webhookData.payload, requestId);
-        break;
+      
       case 'thread.labels_changed':
         await handleLabelsChanged(webhookData.payload, requestId);
         break;
@@ -233,6 +243,8 @@ module.exports = async (req, res) => {
         logger.debug('Unhandled event type', { requestId, eventType });
         break;
     }
+
+    // Webhook processed successfully - ticket data already saved in handleThreadCreated
 
     // Send success response
     const processingTime = Date.now() - startTime;
@@ -265,29 +277,45 @@ module.exports = async (req, res) => {
   }
 };
 
-// Helper functions (copied from your webhook handler)
-async function handleThreadCreated(payload, requestId) {
-  const thread = payload.thread;
-  
-  logger.info('Processing thread created event - FULL THREAD DATA', {
+// Helper functions for processing first messages
+async function processFirstMessage(thread, messageContent, requestId) {
+  logger.info('Processing first message for classification', {
     requestId,
     threadId: thread?.id,
+    messageLength: messageContent?.length || 0,
     customerId: thread?.customer?.id,
     customerEmail: thread?.customer?.email,
-    threadKeys: thread ? Object.keys(thread) : 'null',
-    customerKeys: thread?.customer ? Object.keys(thread.customer) : 'null',
-    fullThread: thread, // Log the entire thread object
-    fullPayload: payload // Log the entire payload
+    customerTier: thread?.tier?.name
   });
 
   try {
-    const priority = await priorityClassifier.classifyThread(thread);
+    // Create enhanced thread object with the actual message content
+    const enhancedThread = {
+      ...thread,
+      allMessageContent: messageContent, // Use the actual message content from email/chat
+      firstMessage: {
+        textContent: messageContent
+      }
+    };
+
+    const priority = await priorityClassifier.classifyThread(enhancedThread);
     
     logger.info('Thread classified', {
       requestId,
       threadId: thread.id,
       priority: priority.priority,
-      confidence: priority.confidence
+      confidence: priority.confidence,
+      messagePreview: messageContent.substring(0, 100)
+    });
+
+    // Save ticket to database using your simple schema
+    await database.saveTicket({
+      threadId: thread.id,
+      messageId: null, // We don't have individual message IDs from webhooks
+      firstMessage: messageContent,
+      priorityScore: Math.round(priority.confidence * 100), // Convert confidence to score (0-100)
+      priorityBand: priority.priority,
+      reasoning: `Confidence: ${priority.confidence}, Method: ${priority.method || 'rules'}, Keywords: ${priority.details?.keywordsMatched?.join(', ') || 'none'}`
     });
 
     if (priority.confidence >= 0.7) {
@@ -309,9 +337,67 @@ async function handleThreadCreated(payload, requestId) {
     }
 
   } catch (error) {
-    logger.error('Error processing thread created event', {
+    logger.error('Error processing first message', {
+      requestId,
+      threadId: thread?.id,
+      error: error.message,
+      stack: error.stack
+    });
+  }
+}
+
+async function handleEmailReceived(payload, requestId) {
+  const thread = payload.thread;
+  const email = payload.email;
+  
+  logger.info('Processing email received event', {
+    requestId,
+    threadId: thread?.id,
+    emailSubject: email?.subject,
+    isStartOfThread: email?.isStartOfThread,
+    hasTextContent: !!email?.textContent,
+    customerId: thread?.customer?.id,
+    customerEmail: thread?.customer?.email?.email
+  });
+
+  // Only process if this is the start of the thread
+  if (!email?.isStartOfThread) {
+    logger.info('Email received but not start of thread, skipping', {
       requestId,
       threadId: thread.id,
+      isStartOfThread: email?.isStartOfThread
+    });
+    return;
+  }
+
+  try {
+    // Check if this thread already exists in our database
+    const existingTicket = await database.getTicket(thread.id);
+    
+    if (existingTicket) {
+      logger.info('Thread already processed, skipping classification', {
+        requestId,
+        threadId: thread.id,
+        existingPriority: existingTicket.priority_band
+      });
+      return;
+    }
+
+    // Fetch full thread details including tier information
+    logger.info('Fetching full thread details for tier and classification', {
+      requestId,
+      threadId: thread.id
+    });
+    
+    const fullThread = await plainApiClient.getThread(thread.id);
+    const messageContent = email?.textContent || email?.subject || '';
+    
+    await processFirstMessage(fullThread, messageContent, requestId);
+
+  } catch (error) {
+    logger.error('Error processing email received event', {
+      requestId,
+      threadId: thread?.id,
       error: error.message,
       stack: error.stack
     });
@@ -319,43 +405,49 @@ async function handleThreadCreated(payload, requestId) {
 }
 
 async function handleChatReceived(payload, requestId) {
-  logger.info('Chat received event', {
-    requestId,
-    payload
-  });
-}
-
-async function handleNoteCreated(payload, requestId) {
-  logger.info('Note created event', {
-    requestId,
-    payload
-  });
-}
-
-async function handleEmailReceived(payload, requestId) {
   const thread = payload.thread;
-  // const isStartOfThread = payload.isStartOfThread;
-  logger.info('Email received event', {
+  const chat = payload.chat;
+  
+  logger.info('Processing chat received event', {
     requestId,
-    payload
+    threadId: thread?.id,
+    hasText: !!chat?.text,
+    customerId: thread?.customer?.id,
+    customerEmail: thread?.customer?.email?.email
   });
-  
-  // if (!isStartOfThread) {
-  //   logger.debug('Email received but not start of thread, skipping', {
-  //     requestId,
-  //     threadId: thread.id
-  //   });
-  //   return;
-  // }
-  
-  // logger.info('Processing email received event (start of thread)', {
-  //   requestId,
-  //   threadId: thread.id,
-  //   customerId: thread.customer?.id,
-  //   customerEmail: thread.customer?.email
-  // });
 
-  // await handleThreadCreated(payload, requestId);
+  try {
+    // Check if this thread already exists in our database
+    const existingTicket = await database.getTicket(thread.id);
+    
+    if (existingTicket) {
+      logger.info('Thread already processed, skipping classification', {
+        requestId,
+        threadId: thread.id,
+        existingPriority: existingTicket.priority_band
+      });
+      return;
+    }
+
+    // Fetch full thread details including tier information
+    logger.info('Fetching full thread details for tier and classification', {
+      requestId,
+      threadId: thread.id
+    });
+    
+    const fullThread = await plainApiClient.getThread(thread.id);
+    const messageContent = chat?.text || '';
+    
+    await processFirstMessage(fullThread, messageContent, requestId);
+
+  } catch (error) {
+    logger.error('Error processing chat received event', {
+      requestId,
+      threadId: thread?.id,
+      error: error.message,
+      stack: error.stack
+    });
+  }
 }
 
 async function handleLabelsChanged(payload, requestId) {

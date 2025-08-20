@@ -181,3 +181,5 @@ DEPLOYMENT_GUIDE.md
 Dockerfile
 PRD-v1.md
 docker-compose.yml
+responses/
+db/

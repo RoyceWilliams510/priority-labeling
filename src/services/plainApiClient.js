@@ -307,6 +307,12 @@ class PlainApiClient {
         tierName: data.thread.tier?.name
       });
 
+      // Add enhanced content for classification
+      const enhancedThread = {
+        ...data.thread,
+        allMessageContent: data.thread.firstMessage?.textContent || data.thread.firstMessage?.content || ''
+      };
+
       return enhancedThread;
     } catch (error) {
       logger.error('Failed to fetch thread', {
