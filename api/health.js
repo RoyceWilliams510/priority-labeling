@@ -18,6 +18,15 @@ module.exports = async (req, res) => {
   } catch (error) {
     databaseStatus = 'error';
     databaseError = error.message;
+    
+    // Log additional debug info for DNS issues
+    if (error.message.includes('ENOTFOUND')) {
+      console.error('DNS Resolution Error - Check DATABASE_URL:', {
+        error: error.message,
+        databaseUrl: process.env.DATABASE_URL ? 'Set (length: ' + process.env.DATABASE_URL.length + ')' : 'Not set',
+        supabaseUrl: process.env.SUPABASE_URL || 'Not set'
+      });
+    }
   }
   
   const [seconds, nanoseconds] = process.hrtime(startTime);
