@@ -125,9 +125,9 @@ class PlainApiClient {
     });
 
     const mutation = `
-      mutation AddLabels($threadId: ID!, $labelTypeIds: [ID!]!) {
-        addLabels(threadId: $threadId, labelTypeIds: $labelTypeIds) {
-          ... on AddLabelsSuccess {
+      mutation AddLabels($input: AddLabelsInput!) {
+        addLabels(input: $input) {
+          ... on AddLabelsOutput {
             thread {
               id
               title
@@ -156,15 +156,23 @@ class PlainApiClient {
     `;
 
     const variables = {
-      threadId,
-      labelTypeIds: [labelTypeId]
+      input: {
+        threadId,
+        labelTypeIds: [labelTypeId]
+      }
     };
 
     try {
       const data = await this.executeGraphQL(mutation, variables, 'AddLabels');
       
+      // Check if it's an error response
       if (data.addLabels.message) {
         throw new Error(`Failed to add label: ${data.addLabels.message}`);
+      }
+
+      // Check if we got a thread back (successful response)
+      if (!data.addLabels.thread) {
+        throw new Error('No thread returned from addLabels mutation');
       }
 
       logger.info('Successfully added priority label', {
@@ -199,9 +207,9 @@ class PlainApiClient {
     });
 
     const mutation = `
-      mutation RemoveLabels($threadId: ID!, $labelIds: [ID!]!) {
-        removeLabels(threadId: $threadId, labelIds: $labelIds) {
-          ... on RemoveLabelsSuccess {
+      mutation RemoveLabels($input: RemoveLabelsInput!) {
+        removeLabels(input: $input) {
+          ... on RemoveLabelsOutput {
             thread {
               id
               title
@@ -230,15 +238,23 @@ class PlainApiClient {
     `;
 
     const variables = {
-      threadId,
-      labelIds: [labelId]
+      input: {
+        threadId,
+        labelIds: [labelId]
+      }
     };
 
     try {
       const data = await this.executeGraphQL(mutation, variables, 'RemoveLabels');
       
+      // Check if it's an error response
       if (data.removeLabels.message) {
         throw new Error(`Failed to remove label: ${data.removeLabels.message}`);
+      }
+
+      // Check if we got a thread back (successful response)
+      if (!data.removeLabels.thread) {
+        throw new Error('No thread returned from removeLabels mutation');
       }
 
       logger.info('Successfully removed priority label', {
