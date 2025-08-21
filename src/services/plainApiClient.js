@@ -127,29 +127,10 @@ class PlainApiClient {
     const mutation = `
       mutation AddLabels($input: AddLabelsInput!) {
         addLabels(input: $input) {
-          ... on AddLabelsOutput {
-            thread {
-              id
-              title
-              labels {
-                id
-                labelType {
-                  id
-                  name
-                  icon
-                }
-              }
-            }
-          }
-          ... on MutationError {
+          error {
             message
             type
             code
-            fields {
-              field
-              message
-              type
-            }
           }
         }
       }
@@ -165,24 +146,19 @@ class PlainApiClient {
     try {
       const data = await this.executeGraphQL(mutation, variables, 'AddLabels');
       
-      // Check if it's an error response
-      if (data.addLabels.message) {
-        throw new Error(`Failed to add label: ${data.addLabels.message}`);
+      // Check if there's an error in the response
+      if (data.addLabels.error) {
+        throw new Error(`Failed to add label: ${data.addLabels.error.message}`);
       }
 
-      // Check if we got a thread back (successful response)
-      if (!data.addLabels.thread) {
-        throw new Error('No thread returned from addLabels mutation');
-      }
-
+      // If no error, the label was added successfully
       logger.info('Successfully added priority label', {
         threadId,
         priority,
-        labelTypeId,
-        labelsCount: data.addLabels.thread.labels.length
+        labelTypeId
       });
 
-      return data.addLabels.thread;
+      return { success: true };
     } catch (error) {
       logger.error('Failed to add priority label', {
         threadId,
@@ -209,29 +185,10 @@ class PlainApiClient {
     const mutation = `
       mutation RemoveLabels($input: RemoveLabelsInput!) {
         removeLabels(input: $input) {
-          ... on RemoveLabelsOutput {
-            thread {
-              id
-              title
-              labels {
-                id
-                labelType {
-                  id
-                  name
-                  icon
-                }
-              }
-            }
-          }
-          ... on MutationError {
+          error {
             message
             type
             code
-            fields {
-              field
-              message
-              type
-            }
           }
         }
       }
@@ -247,23 +204,18 @@ class PlainApiClient {
     try {
       const data = await this.executeGraphQL(mutation, variables, 'RemoveLabels');
       
-      // Check if it's an error response
-      if (data.removeLabels.message) {
-        throw new Error(`Failed to remove label: ${data.removeLabels.message}`);
+      // Check if there's an error in the response
+      if (data.removeLabels.error) {
+        throw new Error(`Failed to remove label: ${data.removeLabels.error.message}`);
       }
 
-      // Check if we got a thread back (successful response)
-      if (!data.removeLabels.thread) {
-        throw new Error('No thread returned from removeLabels mutation');
-      }
-
+      // If no error, the label was removed successfully
       logger.info('Successfully removed priority label', {
         threadId,
-        labelId,
-        labelsCount: data.removeLabels.thread.labels.length
+        labelId
       });
 
-      return data.removeLabels.thread;
+      return { success: true };
     } catch (error) {
       logger.error('Failed to remove priority label', {
         threadId,
