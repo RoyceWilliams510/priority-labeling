@@ -298,11 +298,6 @@ class PlainApiClient {
               icon
             }
           }
-          firstMessage {
-            id
-            content
-            textContent
-          }
         }
       }
     `;
