@@ -48,11 +48,28 @@ class PlainApiClient {
         return response;
       },
       (error) => {
-        logger.error('Plain API response error', {
+        // Enhanced error logging for GraphQL debugging
+        const errorDetails = {
           status: error.response?.status,
           message: error.message,
-          data: error.response?.data
-        });
+          data: error.response?.data,
+          headers: error.response?.headers,
+          requestData: error.config?.data ? JSON.parse(error.config.data) : null,
+          url: error.config?.url,
+          method: error.config?.method
+        };
+        
+        logger.error('Plain API response error - DETAILED', errorDetails);
+        
+        // Log GraphQL-specific errors
+        if (error.response?.data?.errors) {
+          logger.error('GraphQL errors from Plain API', {
+            errors: error.response.data.errors,
+            query: errorDetails.requestData?.query,
+            variables: errorDetails.requestData?.variables
+          });
+        }
+        
         return Promise.reject(error);
       }
     );
@@ -257,7 +274,6 @@ class PlainApiClient {
           createdAt {
             iso8601
           }
-    			previewText
           updatedAt {
             iso8601
           }
@@ -294,6 +310,12 @@ class PlainApiClient {
     const variables = { threadId };
 
     try {
+      logger.debug('Executing GetThread query', {
+        threadId,
+        query: query.replace(/\s+/g, ' ').trim(),
+        variables
+      });
+
       const data = await this.executeGraphQL(query, variables, 'GetThread');
       
       if (!data.thread) {
@@ -315,9 +337,14 @@ class PlainApiClient {
 
       return enhancedThread;
     } catch (error) {
-      logger.error('Failed to fetch thread', {
+      logger.error('Failed to fetch thread - DETAILED ERROR', {
         threadId,
-        error: error.message
+        error: error.message,
+        stack: error.stack,
+        response: error.response?.data,
+        status: error.response?.status,
+        query: query.replace(/\s+/g, ' ').trim(),
+        variables
       });
       throw error;
     }
