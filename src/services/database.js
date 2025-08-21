@@ -31,9 +31,31 @@ class DatabaseService {
         ssl: {
           rejectUnauthorized: false // Required for Supabase
         },
-        max: 10, // Maximum connections in pool
-        idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 2000,
+        max: 1, // Serverless: only 1 connection per function instance
+        min: 0, // Allow pool to scale to zero
+        idleTimeoutMillis: 10000, // Close idle connections quickly
+        connectionTimeoutMillis: 10000, // Longer timeout for connection establishment
+        acquireTimeoutMillis: 8000, // How long to wait for a connection
+        allowExitOnIdle: true, // Allow pool to exit when idle
+        statement_timeout: 30000, // 30 second query timeout
+      });
+
+      // Add pool event handlers for better error tracking
+      this.pool.on('error', (err) => {
+        logger.error('Database pool error', {
+          error: err.message,
+          code: err.code,
+          stack: err.stack
+        });
+        this.isConnected = false;
+      });
+
+      this.pool.on('connect', () => {
+        logger.debug('New database client connected');
+      });
+
+      this.pool.on('remove', () => {
+        logger.debug('Database client removed from pool');
       });
 
       // Test the connection
@@ -44,7 +66,12 @@ class DatabaseService {
       this.isConnected = true;
       logger.info('Successfully connected to Supabase database', {
         database: 'supabase-postgres',
-        ssl: true
+        ssl: true,
+        poolConfig: {
+          max: 1,
+          idleTimeoutMillis: 10000,
+          connectionTimeoutMillis: 10000
+        }
       });
 
       // Create tables if they don't exist
@@ -124,7 +151,11 @@ class DatabaseService {
       return;
     }
 
-    try {
+    let retryCount = 0;
+    const maxRetries = 2;
+
+    while (retryCount <= maxRetries) {
+      try {
       const query = `
         INSERT INTO tickets (
           thread_id, message_id, first_message, priority_score, priority_band, reasoning, processed_at
@@ -156,12 +187,59 @@ class DatabaseService {
         priorityBand
       });
 
-      return result.rows[0].id;
-    } catch (error) {
-      logger.error('Failed to save ticket to database', {
-        error: error.message,
-        threadId
-      });
+        return result.rows[0].id;
+      } catch (error) {
+        retryCount++;
+        
+        // Check if it's a connection termination error
+        const isConnectionError = error.message.includes('termination') || 
+                                 error.message.includes('connection') ||
+                                 error.code === 'XX000' ||
+                                 error.code === '08006' ||
+                                 error.code === '08003';
+        
+        if (isConnectionError && retryCount <= maxRetries) {
+          logger.warn(`Database connection error, retrying (${retryCount}/${maxRetries})`, {
+            error: error.message,
+            code: error.code,
+            threadId
+          });
+          
+          // Reset connection on connection errors
+          this.isConnected = false;
+          if (this.pool) {
+            try {
+              await this.pool.end();
+            } catch (closeError) {
+              // Ignore close errors
+            }
+            this.pool = null;
+          }
+          
+          // Wait a bit before retrying
+          await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+          
+          // Try to reconnect
+          try {
+            await this.initialize();
+          } catch (initError) {
+            logger.error('Failed to reinitialize database connection', {
+              error: initError.message,
+              threadId
+            });
+          }
+          
+          continue; // Retry the operation
+        }
+        
+        logger.error('Failed to save ticket to database', {
+          error: error.message,
+          code: error.code,
+          threadId,
+          retryCount
+        });
+        break; // Exit retry loop on non-connection errors
+      }
     }
   }
 
