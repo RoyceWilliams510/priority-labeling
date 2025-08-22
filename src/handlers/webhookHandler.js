@@ -6,7 +6,7 @@ import {
 
 const logger = require('../utils/logger');
 const config = require('../config/config');
-const priorityClassifier = require('../services/priorityClassifier');
+const priorityClassifier = require('../services/hybridPriorityClassifier'); // Use AI-powered hybrid classifier
 const plainApiClient = require('../services/plainApiClient');
 
 /**
@@ -140,32 +140,40 @@ async function handleThreadCreated(payload, requestId) {
   });
 
   try {
-    // Classify the thread priority
-    const priority = await priorityClassifier.classifyThread(thread);
+    // Classify the thread priority using AI-powered classifier
+    const classification = await priorityClassifier.classifyThread(thread);
     
     logger.info('Thread classified', {
       requestId,
       threadId: thread.id,
-      priority,
-      confidence: priority.confidence
+      priorityBand: classification.priorityBand,
+      priorityScore: classification.priorityScore,
+      confidence: classification.confidence,
+      method: classification.method
     });
 
     // Apply the priority label if confidence is high enough
-    if (priority.confidence >= 0.7) {
-      await plainApiClient.addPriorityLabel(thread.id, priority.level);
+    const shouldApplyLabel = classification.confidence === 'high' || 
+                           classification.confidence === 'medium' || 
+                           (typeof classification.confidence === 'number' && classification.confidence >= 0.7);
+
+    if (shouldApplyLabel) {
+      await plainApiClient.addPriorityLabel(thread.id, classification.priorityBand);
       
       logger.info('Priority label applied', {
         requestId,
         threadId: thread.id,
-        priority: priority.level,
-        confidence: priority.confidence
+        priorityBand: classification.priorityBand,
+        priorityScore: classification.priorityScore,
+        confidence: classification.confidence
       });
     } else {
       logger.info('Low confidence classification, manual review required', {
         requestId,
         threadId: thread.id,
-        priority: priority.level,
-        confidence: priority.confidence
+        priorityBand: classification.priorityBand,
+        priorityScore: classification.priorityScore,
+        confidence: classification.confidence
       });
     }
 

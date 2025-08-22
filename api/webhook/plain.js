@@ -22,7 +22,7 @@ try {
 // Import your services (you may need to adjust paths)
 const logger = require('../../src/utils/logger');
 const config = require('../../src/config/config');
-const priorityClassifier = require('../../src/services/priorityClassifier');
+const priorityClassifier = require('../../src/services/hybridPriorityClassifier'); // Use AI-powered hybrid classifier
 const plainApiClient = require('../../src/services/plainApiClient');
 const database = require('../../src/services/database');
 
@@ -298,41 +298,52 @@ async function processFirstMessage(thread, messageContent, requestId) {
       }
     };
 
-    const priority = await priorityClassifier.classifyThread(enhancedThread);
+    const classification = await priorityClassifier.classifyThread(enhancedThread);
     
     logger.info('Thread classified', {
       requestId,
       threadId: thread.id,
-      priority: priority.priority,
-      confidence: priority.confidence,
+      priorityBand: classification.priorityBand,
+      priorityScore: classification.priorityScore,
+      method: classification.method || classification.classifier,
+      confidence: classification.confidence,
       messagePreview: messageContent.substring(0, 100)
     });
 
-    // Save ticket to database using your simple schema
+    // Save ticket to database using the AI classification
     await database.saveTicket({
       threadId: thread.id,
       messageId: null, // We don't have individual message IDs from webhooks
       firstMessage: messageContent,
-      priorityScore: Math.round(priority.confidence * 100), // Convert confidence to score (0-100)
-      priorityBand: priority.priority,
-      reasoning: `Confidence: ${priority.confidence}, Method: ${priority.method || 'rules'}, Keywords: ${priority.details?.keywordsMatched?.join(', ') || 'none'}`
+      priorityScore: classification.priorityScore,
+      priorityBand: classification.priorityBand,
+      reasoning: classification.reasoning || `Method: ${classification.method}, Confidence: ${classification.confidence}`
     });
 
-    if (priority.confidence >= 0.7) {
-      await plainApiClient.addPriorityLabel(thread.id, priority.priority);
+    // Apply priority label - AI classifier provides more confident results
+    const shouldApplyLabel = classification.confidence === 'high' || 
+                           classification.confidence === 'medium' || 
+                           (typeof classification.confidence === 'number' && classification.confidence >= 0.7);
+
+    if (shouldApplyLabel) {
+      await plainApiClient.addPriorityLabel(thread.id, classification.priorityBand);
       
       logger.info('Priority label applied', {
         requestId,
         threadId: thread.id,
-        priority: priority.priority,
-        confidence: priority.confidence
+        priorityBand: classification.priorityBand,
+        priorityScore: classification.priorityScore,
+        confidence: classification.confidence,
+        method: classification.method
       });
     } else {
       logger.info('Low confidence classification, manual review required', {
         requestId,
         threadId: thread.id,
-        priority: priority.priority,
-        confidence: priority.confidence
+        priorityBand: classification.priorityBand,
+        priorityScore: classification.priorityScore,
+        confidence: classification.confidence,
+        method: classification.method
       });
     }
 

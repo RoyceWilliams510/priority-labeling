@@ -23,8 +23,10 @@ const config = {
   
   // AI/ML configuration
   openaiApiKey: process.env.OPENAI_API_KEY,
-  aiModel: process.env.AI_MODEL || 'gpt-4',
+  claudeApiKey: process.env.CLAUDE_API_KEY,
+  aiModel: process.env.AI_MODEL || 'claude-3-5-sonnet-20241022',
   aiTemperature: parseFloat(process.env.AI_TEMPERATURE) || 0.1,
+  aiClassifierType: process.env.AI_CLASSIFIER_TYPE || 'ai', // 'ai', 'rules', or 'hybrid' - defaults to AI
   
   // Logging configuration
   logLevel: process.env.LOG_LEVEL || 'info',

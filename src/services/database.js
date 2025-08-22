@@ -280,21 +280,36 @@ class DatabaseService {
       const query = `
         SELECT 
           thread_id,
+          message_id,
+          first_message,
           priority_band,
           priority_score,
           reasoning,
           processed_at,
-          created_at
+          created_at,
+          updated_at
         FROM tickets 
-        ORDER BY created_at DESC
+        WHERE first_message IS NOT NULL
+        AND priority_score IS NOT NULL
+        AND priority_band IS NOT NULL
+        ORDER BY processed_at DESC
         LIMIT $1
       `;
 
       const result = await this.pool.query(query, [limit]);
+      
+      // Log the retrieval for debugging
+      logger.debug('Retrieved recent tickets for context', {
+        requestedLimit: limit,
+        actualCount: result.rows.length,
+        hasValidData: result.rows.length > 0
+      });
+      
       return result.rows;
     } catch (error) {
       logger.error('Failed to get recent tickets', {
-        error: error.message
+        error: error.message,
+        limit
       });
       return null;
     }
